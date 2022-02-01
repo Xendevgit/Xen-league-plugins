@@ -1,6 +1,8 @@
 package net.runelite.client.plugins.LXenZMI;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 import com.google.inject.Provides;
@@ -19,6 +21,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.iutils.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 import org.pf4j.Extension;
+
 import javax.inject.Inject;
 
 import static net.runelite.api.MenuAction.*;
@@ -26,8 +29,8 @@ import static net.runelite.api.MenuAction.*;
 @Extension
 @PluginDependency(iUtils.class)
 @PluginDescriptor(
-		name = "Xen - last recall template",
-		description = "plugin template description",
+		name = "XenLeague - ZMI",
+		description = "ZMI with last recall",
 		tags = {"tags"},
 		enabledByDefault = false
 )
@@ -86,6 +89,8 @@ public class LXenZMIPlugin extends Plugin {
 	int timeout;
 	long sleepLength;
 
+	private static final Set<Integer> essIDs = Set.of(ItemID.PURE_ESSENCE, ItemID.DAEYALT_ESSENCE);
+
 	@Provides
 	LXenZMIConfig provideConfig(ConfigManager configManager) {
 		return (LXenZMIConfig) configManager.getConfig(LXenZMIConfig.class);
@@ -137,6 +142,7 @@ public class LXenZMIPlugin extends Plugin {
 					timeout--;
 					break;
 				case MOVING:
+				case ANIMATING:
 					timeout = tickDelay();
 					break;
 				case CRAFT_RUNES:
@@ -183,46 +189,52 @@ public class LXenZMIPlugin extends Plugin {
 			return LXenZMIState.MOVING;
 		}
 
-		if (bank.isOpen()) {
-			if (needToDeposit()) {
-				return LXenZMIState.DEPOSIT;
-			}
-			if (needToWithdraw()) {
-				return LXenZMIState.WITHDRAW;
-			}
-			return LXenZMIState.TELE_RECALL;
+		if (playerUtils.isAnimating()) {
+			return LXenZMIState.ANIMATING;
 		}
 
-		if (needToBank()) {
-			if (isAtBank()) {
-				return LXenZMIState.OPEN_BANK;
+		if (isAtBank()) {
+			if (bank.isOpen()) {
+				if (!haveEss()) {
+					if (inventory.getEmptySlots() >= 27) {
+						return LXenZMIState.WITHDRAW;
+					}
+					return LXenZMIState.DEPOSIT;
+				}
+				return LXenZMIState.TELE_RECALL;
+			}
+			if (haveEss()) {
+				return LXenZMIState.TELE_RECALL;
+			}
+			return LXenZMIState.OPEN_BANK;
+		}
+
+		if (isAtAltar()) {
+			if (haveEss()) {
+				return LXenZMIState.CRAFT_RUNES;
 			}
 			return LXenZMIState.TELE_BANK;
 		}
+
 		return LXenZMIState.UNHANDLED_STATE;
 	}
 
-	private boolean needToDeposit() {
-		return !inventory.containsItem(ItemID.PURE_ESSENCE) && !inventory.isEmpty();
-	}
-
-	private boolean needToWithdraw() {
-		return !inventory.containsItem(ItemID.PURE_ESSENCE);
-	}
-
-	private boolean needToBank() {
-		WorldArea area = new WorldArea(new WorldPoint(1748, 3838, 0), (new WorldPoint(1779, 3873, 0))); //SW to NE
-		return !inventory.containsItem(ItemID.PURE_ESSENCE) && player.getWorldArea().intersectsWith(area);
+	private boolean haveEss() {
+		return inventory.containsItem(essIDs) && inventory.isFull();
 	}
 
 	private boolean isAtBank() {
-		WorldArea bankarea = new WorldArea(new WorldPoint(1748, 3838, 0), (new WorldPoint(1779, 3873, 0))); //SW to NE
-		return player.getWorldArea().intersectsWith(bankarea);
+		return player.getWorldArea().intersectsWith(config.teleportDestination().getBankArea());
 	}
 
+	private boolean isAtAltar() {
+		//WorldArea altarArea = new WorldArea(new WorldPoint(), new WorldPoint());
+		//player.getWorldArea().intersectsWith(altarArea);
+		return client.getLocalPlayer().getWorldLocation().getRegionID() == 12119;
+	}
 
 	private void craftRunesAltar() {
-		GameObject zmiAltar = object.findNearestGameObject(); //todo
+		GameObject zmiAltar = object.findNearestGameObject(ObjectID.RUNECRAFTING_ALTAR); //todo 29631
 		if (zmiAltar != null) {
 			clickGameObject(zmiAltar, GAME_OBJECT_FIRST_OPTION.getId());
 		} else {
@@ -231,35 +243,55 @@ public class LXenZMIPlugin extends Plugin {
 	}
 
 	private void teleportToBank() {
-		//need more bank teleports
+		Widget teleportList = client.getWidget(WidgetInfo.ADVENTURE_LOG);
+		if (teleportList != null) {
+			clickItemInWaystoneWidget(config.teleportDestination().getAction1Param(),teleportList);
+			return;
+		}
+		clickEquippedItem(2, WidgetInfo.EQUIPMENT_AMULET);
 	}
 
 	private void openBank() {
-		GameObject bank = object.findNearestBank();
+		WorldPoint[] validBankLocations = config.teleportDestination().getValidBanks();
+		int randomBankIndex = calc.getRandomIntBetweenRange(0, validBankLocations.length - 1);
+		GameObject bank = object.getGameObjectAtWorldPoint(validBankLocations[randomBankIndex]);
 		if (bank != null) {
-			clickGameObject(bank, GAME_OBJECT_FIRST_OPTION.getId());
+			clickGameObject(bank, GAME_OBJECT_SECOND_OPTION.getId());
 		} else {
 			log.info("Cannot find bank");
 		}
 	}
 
 	private void withdrawItems() {
-		bank.withdrawAllItem(ItemID.PURE_ESSENCE);
+		if (bank.contains(ItemID.DAEYALT_ESSENCE, 27)) {
+			bank.withdrawAllItem(ItemID.DAEYALT_ESSENCE);
+			return;
+		}
+		if (bank.contains(ItemID.PURE_ESSENCE, 27)) {
+			bank.withdrawAllItem(ItemID.PURE_ESSENCE);
+			return;
+		}
+		log.info("out of essence");
 	}
 
 	private void depositAllItems() {
-		bank.depositAll();
+		bank.depositAllExcept(Collections.singleton(ItemID.CRYSTAL_OF_MEMORIES));
 	}
 
 	private void teleportRecall() {
-		if (inventory.containsItem(ItemID.SIGIL_OF_LAST_RECALL)) {
-			clickInventoryItem(ItemID.SIGIL_OF_LAST_RECALL, ITEM_FIRST_OPTION.getId());
+		if (inventory.containsItem(ItemID.CRYSTAL_OF_MEMORIES)) {
+			clickInventoryItem(ItemID.CRYSTAL_OF_MEMORIES, ITEM_FIRST_OPTION.getId());
 		}
 		else {
 			log.info("cannot find last recall in inventory");
 		}
 	}
 
+	private void clickEquippedItem(int type, WidgetInfo equipmentSlot) {
+		// menuOption = Teleport, Target = <col=ff9040>Portable waystone</col>, Type = 2, Opcode = CC_OP, actionParam = -1, actionParam1 = 25362449
+		menu.setEntry(new LegacyMenuEntry("", "", type, CC_OP.getId(), -1, equipmentSlot.getId(), false));
+		mouse.delayMouseClick(client.getWidget(equipmentSlot).getBounds(), sleepDelay());
+	}
 
 	private void clickGameObject(GameObject targetObject, int opcode) {
 		menu.setEntry(new LegacyMenuEntry("", "", targetObject.getId(), opcode, targetObject.getSceneMinLocation().getX(), targetObject.getSceneMinLocation().getY(), false));
@@ -307,6 +339,11 @@ public class LXenZMIPlugin extends Plugin {
 
 	private void clickItemInWidget(int action1Param, Widget widget) { //adjust as needed, widgets can be different
 		menu.setEntry(new LegacyMenuEntry("", "", 1, CC_OP.getId(), -1, action1Param, false));
+		mouse.delayMouseClick(widget.getBounds(), sleepDelay());
+	}
+
+	private void clickItemInWaystoneWidget(int actionParam, Widget widget) { //adjust as needed, widgets can be different
+		menu.setEntry(new LegacyMenuEntry("", "", 0, WIDGET_TYPE_6.getId(), actionParam, 12255235, false));
 		mouse.delayMouseClick(widget.getBounds(), sleepDelay());
 	}
 

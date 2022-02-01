@@ -104,18 +104,6 @@ public interface LXenSandConfig extends Config {
 		return TeleportDestination.CATHERBY;
 	}
 
-	/*
-	@ConfigItem(
-			keyName = "exampleBoolean",
-			name = "example tickbox",
-			description = "example description",
-			position = 16
-	)
-	default boolean exampleBoolean() {
-		return false;
-	}
-	 */
-
 	@ConfigItem(
 			keyName = "startButton",
 			name = "Start/Stop",

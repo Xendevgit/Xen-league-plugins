@@ -94,24 +94,15 @@ public interface LXenZMIConfig extends Config {
 		return true;
 	}
 
-	@ConfigItem(
-			keyName = "objectID",
-			name = "object ID",
-			description = "Game object ID to click on",
-			position = 15
-	)
-	default int objectID() {
-		return 0;
-	}
 
 	@ConfigItem(
-			keyName = "exampleBoolean",
-			name = "example tickbox",
-			description = "example description",
+			keyName = "teleportDestination",
+			name = "Bank Location",
+			description = "Where to bank when using the portable waystone",
 			position = 16
 	)
-	default boolean exampleBoolean() {
-		return false;
+	default TeleportDestination teleportDestination() {
+		return TeleportDestination.CATHERBY;
 	}
 
 	@ConfigItem(

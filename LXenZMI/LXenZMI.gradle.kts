@@ -25,8 +25,8 @@
 
 version = "0.0.1"
 
-project.extra["PluginName"] = "Xen - PluginTemplate"
-project.extra["PluginDescription"] = "Xen - PluginTemplate Plugin"
+project.extra["PluginName"] = "XenLeague - ZMI"
+project.extra["PluginDescription"] = "XenLeague - ZMI Plugin"
 
 dependencies {
     compileOnly(group = "com.openosrs.externals", name = "iutils", version = "+")
