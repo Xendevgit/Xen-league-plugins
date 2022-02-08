@@ -1,8 +1,6 @@
-package net.runelite.client.plugins.LXenZMI;
+package net.runelite.client.plugins.LXenPlankMaker;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 import com.google.inject.Provides;
@@ -21,7 +19,6 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.iutils.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 import org.pf4j.Extension;
-
 import javax.inject.Inject;
 
 import static net.runelite.api.MenuAction.*;
@@ -29,13 +26,13 @@ import static net.runelite.api.MenuAction.*;
 @Extension
 @PluginDependency(iUtils.class)
 @PluginDescriptor(
-		name = "XenLeague - ZMI",
-		description = "ZMI with last recall",
+		name = "Xen League - Plank maker",
+		description = "Makes planks at sawmill using last recall",
 		tags = {"tags"},
 		enabledByDefault = false
 )
 @Slf4j
-public class LXenZMIPlugin extends Plugin {
+public class LXenPlankMakerPlugin extends Plugin {
 
 	@Inject
 	private Client client;
@@ -74,31 +71,29 @@ public class LXenZMIPlugin extends Plugin {
 	private OverlayManager overlayManager;
 
 	@Inject
-	private LXenZMIConfig config;
+	private LXenPlankMakerConfig config;
 
 	@Inject
-	private LXenZMIOverlay overlay;
+	private LXenPlankMakerOverlay overlay;
 
 	public LegacyMenuEntry entry;
 	private Player player;
 
 
 	private boolean start;
-	LXenZMIState state;
+	LXenPlankMakerState state;
 	Instant timer;
 	int timeout;
 	long sleepLength;
 
-	private static final Set<Integer> essIDs = Set.of(ItemID.PURE_ESSENCE, ItemID.DAEYALT_ESSENCE);
-
 	@Provides
-	LXenZMIConfig provideConfig(ConfigManager configManager) {
-		return (LXenZMIConfig) configManager.getConfig(LXenZMIConfig.class);
+	LXenPlankMakerConfig provideConfig(ConfigManager configManager) {
+		return (LXenPlankMakerConfig) configManager.getConfig(LXenPlankMakerConfig.class);
 	}
 
 	@Subscribe
 	private void onConfigButtonPressed(ConfigButtonClicked configButtonClicked) {
-		if (!configButtonClicked.getGroup().equalsIgnoreCase("LXenZMIConfig")) {
+		if (!configButtonClicked.getGroup().equalsIgnoreCase("LXenPlankMakerConfig")) {
 			return;
 		}
 		switch (configButtonClicked.getKey()) {
@@ -142,11 +137,10 @@ public class LXenZMIPlugin extends Plugin {
 					timeout--;
 					break;
 				case MOVING:
-				case ANIMATING:
 					timeout = tickDelay();
 					break;
-				case CRAFT_RUNES:
-					craftRunesAltar();
+				case MAKE_PLANK:
+					makePlanks();
 					timeout = tickDelay();
 					break;
 				case TELE_BANK:
@@ -162,15 +156,16 @@ public class LXenZMIPlugin extends Plugin {
 					timeout = tickDelay();
 					break;
 				case DEPOSIT:
-					depositAllItems();
-					timeout = 2 + tickDelay();
+					depositItems();
+					timeout = tickDelay();
 					break;
 				case TELE_RECALL:
 					teleportRecall();
 					timeout = tickDelay();
 					break;
 				case UNHANDLED_STATE:
-					log.info("LXenZMI: unhandled state - stopping");
+					log.info("LXenPlankMaker: unhandled state - stopping");
+				case STOPPING:
 					resetVals();
 					break;
 
@@ -179,66 +174,79 @@ public class LXenZMIPlugin extends Plugin {
 		}
 	}
 
-	private LXenZMIState getState() {
+	private LXenPlankMakerState getState() {
 		if (timeout > 0) {
 			playerUtils.handleRun(20, 20);
-			return LXenZMIState.TIMEOUT;
+			return LXenPlankMakerState.TIMEOUT;
+		}
+
+		if (!inventory.containsStackAmount(ItemID.COINS_995, config.stopAtCoins())) {
+			return LXenPlankMakerState.STOPPING;
 		}
 
 		if (playerUtils.isMoving()) {
-			return LXenZMIState.MOVING;
-		}
-
-		if (playerUtils.isAnimating()) {
-			return LXenZMIState.ANIMATING;
+			return LXenPlankMakerState.MOVING;
 		}
 
 		if (isAtBank()) {
 			if (bank.isOpen()) {
-				if (!haveEss()) {
-					if (inventory.getEmptySlots() >= 27) {
-						return LXenZMIState.WITHDRAW;
-					}
-					return LXenZMIState.DEPOSIT;
+				if (havePlanks()) {
+					return LXenPlankMakerState.DEPOSIT;
 				}
-				return LXenZMIState.TELE_RECALL;
+				if (!bank.contains(ItemID.TEAK_LOGS, 26)) {
+					return LXenPlankMakerState.STOPPING;
+				}
+				if (!haveLogs()) {
+					return LXenPlankMakerState.WITHDRAW;
+				}
+				return LXenPlankMakerState.TELE_RECALL;
 			}
-			if (haveEss()) {
-				return LXenZMIState.TELE_RECALL;
+
+			if (havePlanks()) {
+				return LXenPlankMakerState.OPEN_BANK;
 			}
-			return LXenZMIState.OPEN_BANK;
+			if (haveLogs()) {
+				return LXenPlankMakerState.TELE_RECALL;
+			}
 		}
 
-		if (isAtAltar()) {
-			if (haveEss()) {
-				return LXenZMIState.CRAFT_RUNES;
-			}
-			return LXenZMIState.TELE_BANK;
+		if (isAtSawmill()) {
+			 if (haveLogs()) {
+				 return LXenPlankMakerState.MAKE_PLANK;
+			 }
+			return LXenPlankMakerState.TELE_BANK;
 		}
 
-		return LXenZMIState.UNHANDLED_STATE;
+
+		return LXenPlankMakerState.UNHANDLED_STATE;
 	}
 
-	private boolean haveEss() {
-		return inventory.containsItem(essIDs) && inventory.isFull();
+	private boolean havePlanks() {
+		return inventory.containsItemAmount(ItemID.TEAK_PLANK, 26, false, false);
+	}
+
+	private boolean haveLogs() {
+		return inventory.containsItemAmount(ItemID.TEAK_LOGS, 26, false, false);
+	}
+
+	private boolean isAtSawmill() {
+		return player.getWorldLocation().getRegionID() == 13110;
 	}
 
 	private boolean isAtBank() {
 		return player.getWorldArea().intersectsWith(config.teleportDestination().getBankArea());
 	}
 
-	private boolean isAtAltar() {
-		//WorldArea altarArea = new WorldArea(new WorldPoint(), new WorldPoint());
-		//player.getWorldArea().intersectsWith(altarArea);
-		return client.getLocalPlayer().getWorldLocation().getRegionID() == 12119;
-	}
-
-	private void craftRunesAltar() {
-		GameObject zmiAltar = object.findNearestGameObject(ObjectID.RUNECRAFTING_ALTAR);
-		if (zmiAltar != null) {
-			clickGameObject(zmiAltar, GAME_OBJECT_FIRST_OPTION.getId());
-		} else {
-			log.info("Cannot find object");
+	private void makePlanks() {
+		Widget skillMenu = client.getWidget(WidgetInfo.MULTI_SKILL_MENU);
+		if (skillMenu != null) {
+			clickItemInWidget(17694736, skillMenu);
+			return;
+		}
+		NPC sawmill = npc.findNearestNpc(NpcID.SAWMILL_OPERATOR);
+		if (sawmill != null) {
+			clickNPC(sawmill, NPC_THIRD_OPTION.getId());
+			return;
 		}
 	}
 
@@ -263,19 +271,11 @@ public class LXenZMIPlugin extends Plugin {
 	}
 
 	private void withdrawItems() {
-		if (bank.contains(ItemID.DAEYALT_ESSENCE, 27)) {
-			bank.withdrawAllItem(ItemID.DAEYALT_ESSENCE);
-			return;
-		}
-		if (bank.contains(ItemID.PURE_ESSENCE, 27)) {
-			bank.withdrawAllItem(ItemID.PURE_ESSENCE);
-			return;
-		}
-		log.info("out of essence");
+		bank.withdrawAllItem(ItemID.TEAK_LOGS);
 	}
 
-	private void depositAllItems() {
-		bank.depositAllExcept(Collections.singleton(ItemID.CRYSTAL_OF_MEMORIES));
+	private void depositItems() {
+		bank.depositAllOfItem(ItemID.TEAK_PLANK);
 	}
 
 	private void teleportRecall() {

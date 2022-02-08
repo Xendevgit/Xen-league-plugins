@@ -25,8 +25,8 @@
 
 version = "0.0.2"
 
-project.extra["PluginName"] = "XenLeague - Sand"
-project.extra["PluginDescription"] = "XenLeague - Sand Plugin"
+project.extra["PluginName"] = "XenLeague - PlankMaker"
+project.extra["PluginDescription"] = "XenLeague - PlankMaker Plugin"
 
 dependencies {
     compileOnly(group = "com.openosrs.externals", name = "iutils", version = "+")

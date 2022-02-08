@@ -28,6 +28,7 @@ rootProject.name = "Xen-league-plugins"
 include(":LXenSand")
 include(":LXenzmi")
 include(":LXenSeaweed")
+include(":LXenPlankMaker")
 
 
 
