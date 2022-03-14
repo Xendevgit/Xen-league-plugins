@@ -1,0 +1,20 @@
+package net.runelite.client.plugins.LXenBarrows;
+
+public enum LXenBarrowsState {
+	UNHANDLED_STATE,
+	TIMEOUT,
+	MOVING,
+	TELEPORT_BARROWS,
+	MOVE_TO_HILL,
+	DIG,
+	ACTIVATE_PRAYER,
+	OPEN_SARCHOPHAGUS,
+	ATTACK,
+	WAIT_COMBAT,
+	RECALL_CHEST,
+	OPEN_CHEST,
+	LOOT_CHEST,
+	TELEPORT_HOUSE,
+	USE_POOL
+
+}
